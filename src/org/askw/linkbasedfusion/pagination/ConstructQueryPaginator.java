@@ -36,8 +36,6 @@ import joptsimple.OptionSet;
  */
 public class ConstructQueryPaginator {
 
-	
-	
 	private Query query;
 	private File outDir;
 	private File tmpDir;
@@ -54,6 +52,7 @@ public class ConstructQueryPaginator {
 	 */
 	public static void main(String[] args)
 	{
+		ConstructQueryPaginator cqp = null;
 		try {
 			OptionParser parser = getCLIParser();
 			OptionSet options = parser.parse(args);
@@ -65,20 +64,29 @@ public class ConstructQueryPaginator {
 			URI sparqlEndPoint = (URI) options.valueOf("sparqlendpoint");
 			String prefix = (String) options.valueOf("outfileprefix");
 			long initialOffset = (Long) options.valueOf("initialoffset");
-
-			ConstructQueryPaginator cqp = new ConstructQueryPaginator(queryFile, limit, outDir, tmpDir, sparqlEndPoint, prefix, initialOffset);
-
-			//final long startTime = System.currentTimeMillis();
-			cqp.execute();
-			//cqp.executePaginatedQuery(limit, initialOffset);
-			//final long endTime = System.currentTimeMillis();
-			//System.out.println("Processing time " +(endTime-startTime));
-
-			cqp.concatenate();
+			cqp = new ConstructQueryPaginator(queryFile, limit, outDir, tmpDir, sparqlEndPoint, prefix, initialOffset);
 		} catch (Exception e) {
+			System.out.println("Error: Options are not given correctly.\n\nUse the following format to run it\n\n" +
+				"--query <path/to/query.rq> [--limit <page size>]" +
+				"[ --outdir <output files directory>] [--outfileprefix <prefix>] --sparqlendpoint <URI to SPRAQL endpoint>");
 			e.printStackTrace();
 		}
-		
+
+
+		try {
+			cqp.execute();
+		} catch (FileNotFoundException e) {
+		    //System.out.println("failed during execution");
+			e.printStackTrace();
+		}
+
+		try {
+			cqp.concatenate();
+		} catch (Exception e) {
+            //System.out.println("failed during concatenation");
+		    e.printStackTrace();
+		}
+
 	}
 
 	public void concatenate() throws Exception {
@@ -89,7 +97,7 @@ public class ConstructQueryPaginator {
 
 		BufferedWriter bw = new BufferedWriter(new OutputStreamWriter(new FileOutputStream(mergeFile, true)));
 
-		for (File file : this.tmpFiles) {
+        for (File file : this.tmpFiles) {
 			String line;
 			BufferedReader br = new BufferedReader(new FileReader(file));
 
@@ -107,8 +115,7 @@ public class ConstructQueryPaginator {
 		query = QueryFactory.read(queryFile.getAbsolutePath()); 
 		
 		this.limit = (limit>0)? limit:10000;	
-		
-				
+
 		StringBuffer parameterizedSparqlStringBuffer = new StringBuffer(query.toString());
 		parameterizedSparqlStringBuffer.append("\nLIMIT ?limit")
 										.append("\nOFFSET ?offset");
@@ -140,6 +147,7 @@ public class ConstructQueryPaginator {
 		pQuery.setLiteral("limit", limit);
         
 		QueryEngineHTTP httpQuery;
+		int k=0;
 		do
 	    {
 			pQuery.setLiteral("offset", offset);
@@ -153,6 +161,7 @@ public class ConstructQueryPaginator {
 	        {
 	        	break; 
 	        }
+
 	        File tmpFile = new File(tmpDir.getAbsolutePath()+"/"+resultsFilePrefix+offset+".nt");
 			this.tmpFiles.add(tmpFile);
 			OutputStream os = new FileOutputStream(tmpFile);
@@ -161,32 +170,9 @@ public class ConstructQueryPaginator {
 	        offset +=limit;
 	        
 	        httpQuery.close();
-	    }while (true); 
-    	
-		
+	    }while (true);
 	}
 
-	public Model executePaginatedQuery(long limit, long offset) throws FileNotFoundException
-	{
-		pQuery.setLiteral("limit", limit);
-        pQuery.setLiteral("offset", offset);
-	    query = QueryFactory.create(pQuery.toString(), Syntax.syntaxARQ) ;
-	    System.out.println(query.toString());
-	    QueryEngineHTTP httpQuery = new QueryEngineHTTP(sparqlEndPoint.toString(),query);
-	    Model m = httpQuery.execConstruct(); //qex.execConstruct();
-	    if(!m.isEmpty())
-	    {
-	    	OutputStream os = new FileOutputStream(new File(outDir.getAbsolutePath()+"/"+resultsFilePrefix+offset+".nt"));
-	    	RDFDataMgr.write(os,m,RDFFormat.NTRIPLES_UTF8);
-	    }
-	    else
-	    {
-	    	System.err.println("resulting RDF model is empty " + m.isEmpty());
-	    }
-	    httpQuery.close();
-		return m;
-	}
-	
 	private static OptionParser getCLIParser()
 	{
 		OptionParser parser = new OptionParser();
@@ -201,7 +187,7 @@ public class ConstructQueryPaginator {
 			  .withRequiredArg()
 		  	  .ofType( File.class )
 		  	  .defaultsTo( new File(System.getProperty("user.dir")+File.separator +"out"));
-		parser.accepts("tmpdir", "Output directory to save splitted files")
+		parser.accepts("tmpdir", "Output directory to save partial files")
 			  .withRequiredArg()
 			  .ofType(File.class)
 			  .defaultsTo( new File(System.getProperty("user.dir") + File.separator + "out" + File.separator + "tmp"));
@@ -218,8 +204,4 @@ public class ConstructQueryPaginator {
 
 		return parser;
 	}
-	
-	
-	
-
 }
